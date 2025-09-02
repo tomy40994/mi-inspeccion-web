@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inspección de Seguridad - AT Neumáticos y Servicios</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chosen Palette: Warm Neutrals -->
+    <!-- Application Structure Plan: Se diseñó una aplicación de panel de control interactivo de una sola vista. La estructura prioriza el flujo de trabajo del técnico: 1) Ingreso de datos del cliente. 2) Una sección principal de dos columnas con la lista de inspección a la izquierda y un diagrama visual interactivo y un gráfico de resumen a la derecha. 3) Un resumen de resultados que se genera automáticamente en la parte inferior. Esta arquitectura fue elegida para maximizar la eficiencia, permitiendo al técnico registrar datos y ver el impacto visual en tiempo real, lo que facilita la comunicación con el cliente al mostrarle tanto la lista de problemas como un diagrama de las partes afectadas. -->
+    <!-- Visualization & Content Choices: La planilla de texto fue transformada en elementos interactivos. Goal: Organizar y registrar datos -> Presentation: Tarjetas interactivas con botones de estado (Bueno, Regular, Malo). Interaction: Clic en botones actualiza el estado, color de la tarjeta y el resumen general. Justification: Más rápido y visual que llenar una tabla. Goal: Contextualizar y educar -> Presentation: Diagrama del tren delantero hecho con HTML/CSS. Interaction: Pasar el mouse sobre un ítem de la lista resalta la pieza en el diagrama. Justification: Ofrece una referencia visual clara para el cliente sin usar SVG. Goal: Resumir -> Presentation: Gráfico de dona (Chart.js) y listas dinámicas. Interaction: Se actualizan automáticamente. Justification: Proporciona un resumen cuantitativo y cualitativo instantáneo del estado del vehículo. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .status-btn {
+            transition: all 0.2s ease-in-out;
+        }
+        .status-btn.selected {
+            transform: scale(1.1);
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+        .diagram-part {
+            position: absolute;
+            transition: all 0.3s ease-in-out;
+            z-index: 10;
+        }
+        .diagram-part.highlight {
+            transform: scale(1.05);
+            z-index: 20;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.5);
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        .bg-gradient-custom {
+            background-image: linear-gradient(135deg, #f5f5f5 0%, #e5e5e5 100%);
+        }
+        
+        /* New realistic diagram styles */
+        #diagram-container {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            margin: auto;
+            transform: scale(0.9);
+            transform-origin: center center;
+        }
+
+        #diagram-neumatico {
+            width: 120px;
+            height: 120px;
+            top: 100px;
+            left: 20px;
+            border-radius: 50%;
+            background-color: #333;
+            border: 8px solid #444;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        #diagram-neumatico::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(to bottom, #ccc, #aaa);
+            border: 2px solid #555;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+        }
+
+        #diagram-disco {
+            width: 65px;
+            height: 65px;
+            top: 128px;
+            left: 80px;
+            border-radius: 50%;
+            background: repeating-linear-gradient(90deg, #b0b0b0 0 2px, #d0d0d0 2px 4px);
+            border: 1px solid #999;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+        }
+
+        #diagram-pastillas {
+            width: 40px;
+            height: 60px;
+            top: 110px;
+            left: 70px;
+            background: linear-gradient(to right, #666 0%, #777 50%, #666 100%);
+            border-radius: 8px;
+            transform: rotate(-10deg);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        #diagram-amortiguador {
+            width: 25px;
+            height: 170px;
+            top: 20px;
+            left: 190px;
+            border-radius: 12px;
+            background: linear-gradient(to bottom, #bbb 0%, #ddd 20%, #bbb 80%, #aaa 100%);
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+            border: 1px solid #999;
+        }
+        #diagram-amortiguador::after {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 15px;
+            height: 120px;
+            border: 2px solid #888;
+            border-left: none;
+            border-right: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 4px, #444 4px, #444 8px);
+        }
+
+        #diagram-bieleta {
+            width: 15px;
+            height: 90px;
+            top: 130px;
+            left: 150px;
+            transform: rotate(-25deg);
+            border-radius: 8px;
+            background: linear-gradient(to top, #777, #999, #777);
+        }
+
+        #diagram-extremo_axial {
+            width: 100px;
+            height: 10px;
+            top: 170px;
+            left: 170px;
+            border-radius: 5px;
+            background: #888;
+        }
+        #diagram-extremo_axial::before, #diagram-extremo_axial::after {
+            content: '';
+            position: absolute;
+            top: -5px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: #555;
+            border: 1px solid #444;
+        }
+        #diagram-extremo_axial::before {
+            left: -10px;
+        }
+        #diagram-extremo_axial::after {
+            right: -10px;
+        }
+        
+        #diagram-rotula_direccion {
+            width: 20px;
+            height: 20px;
+            top: 165px;
+            left: 165px;
+            border-radius: 50%;
+            background-color: #c0392b;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+            border: 2px solid #a0392b;
+        }
+
+        #diagram-bujes_parrilla {
+            width: 25px;
+            height: 25px;
+            top: 200px;
+            left: 150px;
+            border-radius: 50%;
+            background-color: #27ae60;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+        }
+        #diagram-bujes_barra {
+            width: 25px;
+            height: 25px;
+            top: 170px;
+            left: 260px;
+            border-radius: 50%;
+            background-color: #27ae60;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+        }
+
+        #diagram-rotula_suspension {
+            width: 20px;
+            height: 20px;
+            top: 200px;
+            left: 100px;
+            border-radius: 50%;
+            background-color: #c0392b;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+            border: 2px solid #a0392b;
+        }
+        
+        /* Connection lines */
+        .diagram-part.connection-line {
+            background-color: #555;
+            height: 8px;
+            border-radius: 4px;
+        }
+        .diagram-part.connection-line.long {
+            width: 150px;
+            top: 215px;
+            left: 110px;
+        }
+        .diagram-part.connection-line.short {
+            width: 80px;
+            top: 210px;
+            left: 180px;
+            transform: rotate(-10deg);
+        }
+    </style>
+</head>
+<body class="bg-gradient-custom text-gray-800">
+
+    <header class="bg-white shadow-md">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">AT Neumáticos y Servicios</h1>
+            <p class="text-md text-gray-600">Planilla de Inspección de Seguridad Interactiva</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <section id="vehicle-data" class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-xl font-semibold mb-4 border-b pb-2">Datos del Vehículo</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                    <label for="cliente" class="block text-sm font-medium text-gray-700">Cliente</label>
+                    <input type="text" id="cliente" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="vehiculo" class="block text-sm font-medium text-gray-700">Vehículo</label>
+                    <input type="text" id="vehiculo" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="placa" class="block text-sm font-medium text-gray-700">Placa</label>
+                    <input type="text" id="placa" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="kilometraje" class="block text-sm font-medium text-gray-700">Kilometraje</label>
+                    <input type="number" id="kilometraje" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div id="inspection-checklist" class="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">Puntos de Control del Tren Delantero</h2>
+                <p class="text-sm text-gray-600 mb-6">Seleccione el estado de cada componente. Al pasar el mouse sobre un ítem, la pieza correspondiente se resaltará en el diagrama.</p>
+                <div id="component-list" class="space-y-4">
+                </div>
+            </div>
+            <div class="space-y-8">
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4 text-center">Diagrama Interactivo</h2>
+                    <div id="diagram-container" class="relative">
+                        <!-- Rediseño del diagrama -->
+                        <!-- Rótula de suspensión, rótula de dirección y bujes de parrilla con líneas de conexión -->
+                        <div id="diagram-rotula_suspension" data-component="rotula_suspension" class="diagram-part"></div>
+                        <div id="diagram-rotula_direccion" data-component="rotula_direccion" class="diagram-part"></div>
+                        <div id="diagram-bujes_parrilla" data-component="bujes_parrilla" class="diagram-part"></div>
+                        
+                        <!-- Barra estabilizadora y bujes de barra -->
+                        <div id="diagram-bujes_barra" data-component="bujes_barra" class="diagram-part"></div>
+                        <div id="diagram-barra_estabilizadora" data-component="bujes_barra" class="diagram-part connection-line" style="width: 150px; top: 182px; left: 120px; transform: rotate(-5deg);"></div>
+
+                        <!-- Bieleta -->
+                        <div id="diagram-bieleta" data-component="bieletas" class="diagram-part"></div>
+                        
+                        <!-- Amortiguador -->
+                        <div id="diagram-amortiguador" data-component="amortiguadores" class="diagram-part"></div>
+                        
+                        <!-- Disco, pastillas, neumático y extremo axial -->
+                        <div id="diagram-disco" data-component="disco_freno" class="diagram-part"></div>
+                        <div id="diagram-pastillas" data-component="pastillas_freno" class="diagram-part"></div>
+                        <div id="diagram-neumatico" data-component="neumatico" class="diagram-part"></div>
+                        <div id="diagram-extremo_axial" data-component="extremos_axiales" class="diagram-part"></div>
+
+                    </div>
+                </div>
+                 <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4 text-center">Resumen de Estado</h2>
+                    <div class="chart-container">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section id="summary" class="bg-white p-6 rounded-lg shadow-md mt-8">
+            <h2 class="text-xl font-semibold mb-4 border-b pb-2">Resumen y Recomendaciones</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-lg font-semibold text-red-600 mb-2">🔴 Puntos de Reparación Urgente</h3>
+                    <ul id="summary-malo" class="list-disc list-inside space-y-1 text-gray-700">
+                        <li class="italic">No hay puntos de reparación urgente.</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-yellow-600 mb-2">🟡 Puntos a Vigilar / Recomendaciones</h3>
+                    <ul id="summary-regular" class="list-disc list-inside space-y-1 text-gray-700">
+                         <li class="italic">No hay puntos a vigilar.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+        
+        <footer class="text-center mt-8">
+             <button onclick="window.print()" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-blue-700 transition duration-300">
+                Imprimir Reporte
+            </button>
+            <button onclick="resetForm()" class="bg-gray-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-gray-700 transition duration-300 ml-4">
+                Reiniciar Planilla
+            </button>
+        </footer>
+
+    </main>
+
+    <script>
+        const components = {
+            suspension: {
+                title: 'Suspensión',
+                items: {
+                    amortiguadores: { name: 'Amortiguadores', status: null, notes: '' },
+                    bieletas: { name: 'Bieletas', status: null, notes: '' },
+                    bujes_barra: { name: 'Bujes de barra estabilizadora', status: null, notes: '' }
+                }
+            },
+            frenos: {
+                title: 'Frenos',
+                items: {
+                    disco_freno: { name: 'Discos de freno', status: null, notes: '' },
+                    pastillas_freno: { name: 'Pastillas de freno', status: null, notes: '' },
+                    mangueras_freno: { name: 'Mangueras de freno', status: null, notes: '' }
+                }
+            },
+            direccion: {
+                title: 'Dirección',
+                items: {
+                    rotula_direccion: { name: 'Rótulas de dirección', status: null, notes: '' },
+                    extremos_axiales: { name: 'Extremos axiales', status: null, notes: '' }
+                }
+            },
+            ejes: {
+                title: 'Ejes y Bujes',
+                items: {
+                    rotula_suspension: { name: 'Rótulas de suspensión', status: null, notes: '' },
+                    bujes_parrilla: { name: 'Bujes de parrilla', status: null, notes: '' },
+                    rodamientos_rueda: { name: 'Rodamientos de rueda', status: null, notes: '' }
+                }
+            },
+            neumaticos: {
+                title: 'Neumáticos',
+                items: {
+                    neumatico: { name: 'Estado del neumático', status: null, notes: '' },
+                    presion_aire: { name: 'Presión de aire', status: null, notes: '' }
+                }
+            }
+        };
+
+        const componentListEl = document.getElementById('component-list');
+        let statusChart;
+
+        function renderChecklist() {
+            componentListEl.innerHTML = '';
+            for (const categoryKey in components) {
+                const category = components[categoryKey];
+                
+                const categoryTitle = document.createElement('h3');
+                categoryTitle.className = 'text-lg font-semibold text-gray-800 mt-6 -mb-2';
+                categoryTitle.textContent = category.title;
+                componentListEl.appendChild(categoryTitle);
+
+                for (const itemKey in category.items) {
+                    const item = category.items[itemKey];
+                    const card = document.createElement('div');
+                    card.id = `card-${itemKey}`;
+                    card.className = 'p-4 border rounded-lg transition duration-300 border-gray-200';
+                    card.innerHTML = `
+                        <div class="flex flex-wrap items-center justify-between">
+                            <span class="font-medium flex-grow pr-4">${item.name}</span>
+                            <div class="flex-shrink-0 space-x-2 my-2 sm:my-0">
+                                <button onclick="updateStatus('${categoryKey}', '${itemKey}', 'B')" class="status-btn w-24 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-800 hover:bg-green-200">Bueno</button>
+                                <button onclick="updateStatus('${categoryKey}', '${itemKey}', 'R')" class="status-btn w-24 py-1 text-sm font-semibold rounded-full bg-yellow-100 text-yellow-800 hover:bg-yellow-200">Regular</button>
+                                <button onclick="updateStatus('${categoryKey}', '${itemKey}', 'M')" class="status-btn w-24 py-1 text-sm font-semibold rounded-full bg-red-100 text-red-800 hover:bg-red-200">Malo</button>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <input type="text" placeholder="Notas adicionales..." oninput="updateNotes('${categoryKey}', '${itemKey}', this.value)" class="w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                        </div>
+                    `;
+                    componentListEl.appendChild(card);
+                    
+                    card.addEventListener('mouseover', () => highlightDiagram(itemKey, true));
+                    card.addEventListener('mouseout', () => highlightDiagram(itemKey, false));
+                }
+            }
+        }
+
+        function updateStatus(categoryKey, itemKey, status) {
+            components[categoryKey].items[itemKey].status = status;
+            updateUI();
+        }
+        
+        function updateNotes(categoryKey, itemKey, notes) {
+            components[categoryKey].items[itemKey].notes = notes;
+        }
+
+        function updateUI() {
+            let maloCount = 0, regularCount = 0, buenoCount = 0, uncheckedCount = 0;
+            const summaryMalo = document.getElementById('summary-malo');
+            const summaryRegular = document.getElementById('summary-regular');
+            summaryMalo.innerHTML = '';
+            summaryRegular.innerHTML = '';
+
+            for (const categoryKey in components) {
+                for (const itemKey in components[categoryKey].items) {
+                    const item = components[categoryKey].items[itemKey];
+                    const card = document.getElementById(`card-${itemKey}`);
+                    const buttons = card.querySelectorAll('.status-btn');
+                    
+                    buttons.forEach(btn => btn.classList.remove('selected', 'ring-2', 'ring-offset-2'));
+                    card.classList.remove('border-green-400', 'border-yellow-400', 'border-red-400', 'bg-green-50', 'bg-yellow-50', 'bg-red-50');
+                    card.classList.add('border-gray-200');
+
+                    if (item.status === 'B') {
+                        card.classList.add('border-green-400', 'bg-green-50');
+                        buttons[0].classList.add('selected', 'ring-2', 'ring-offset-2', 'ring-green-500');
+                        buenoCount++;
+                    } else if (item.status === 'R') {
+                        card.classList.add('border-yellow-400', 'bg-yellow-50');
+                        buttons[1].classList.add('selected', 'ring-2', 'ring-offset-2', 'ring-yellow-500');
+                        const li = document.createElement('li');
+                        li.textContent = `${item.name}${item.notes ? ': ' + item.notes : ''}`;
+                        summaryRegular.appendChild(li);
+                        regularCount++;
+                    } else if (item.status === 'M') {
+                        card.classList.add('border-red-400', 'bg-red-50');
+                        buttons[2].classList.add('selected', 'ring-2', 'ring-offset-2', 'ring-red-500');
+                        const li = document.createElement('li');
+                        li.textContent = `${item.name}${item.notes ? ': ' + item.notes : ''}`;
+                        summaryMalo.appendChild(li);
+                        maloCount++;
+                    } else {
+                        uncheckedCount++;
+                    }
+                }
+            }
+            if (summaryMalo.children.length === 0) summaryMalo.innerHTML = '<li class="italic">No hay puntos de reparación urgente.</li>';
+            if (summaryRegular.children.length === 0) summaryRegular.innerHTML = '<li class="italic">No hay puntos a vigilar.</li>';
+            
+            updateChart(buenoCount, regularCount, maloCount, uncheckedCount);
+        }
+        
+        function highlightDiagram(itemKey, isHighlighted) {
+            let diagramPart = document.querySelector(`#diagram-container [data-component="${itemKey}"]`);
+            if (!diagramPart) {
+                // Handle special cases or groups
+                 if (['bujes_barra', 'barra_estabilizadora'].includes(itemKey)) {
+                    diagramPart = document.getElementById('diagram-bujes_barra');
+                }
+            }
+            if (diagramPart) {
+                if(isHighlighted) {
+                    diagramPart.classList.add('highlight');
+                } else {
+                    diagramPart.classList.remove('highlight');
+                }
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('statusChart').getContext('2d');
+            statusChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Bueno', 'Regular', 'Malo', 'Sin revisar'],
+                    datasets: [{
+                        label: 'Estado de Componentes',
+                        data: [0, 0, 0, Object.values(components).reduce((acc, cat) => acc + Object.keys(cat.items).length, 0)],
+                        backgroundColor: [
+                            'rgba(34, 197, 94, 0.7)',
+                            'rgba(234, 179, 8, 0.7)',
+                            'rgba(239, 68, 68, 0.7)',
+                            'rgba(209, 213, 219, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgb(22, 163, 74)',
+                            'rgb(202, 138, 4)',
+                            'rgb(220, 38, 38)',
+                            'rgb(156, 163, 175)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: false,
+                            text: 'Resumen de Estado'
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateChart(bueno, regular, malo, unchecked) {
+            statusChart.data.datasets[0].data = [bueno, regular, malo, unchecked];
+            statusChart.update();
+        }
+
+        function resetForm() {
+            document.getElementById('cliente').value = '';
+            document.getElementById('vehiculo').value = '';
+            document.getElementById('placa').value = '';
+            document.getElementById('kilometraje').value = '';
+
+            for (const categoryKey in components) {
+                for (const itemKey in components[categoryKey].items) {
+                    components[categoryKey].items[itemKey].status = null;
+                    components[categoryKey].items[itemKey].notes = '';
+                }
+            }
+            const inputs = document.querySelectorAll('#component-list input[type="text"]');
+            inputs.forEach(input => input.value = '');
+            updateUI();
+        }
+
+        window.onload = () => {
+            renderChecklist();
+            initChart();
+            updateUI();
+        };
+
+    </script>
+
+</body>
+</html>
